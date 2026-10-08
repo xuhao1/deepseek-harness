@@ -141,6 +141,10 @@ The plugin is built on one explicit resolve step and one registration fact. `res
 
 One `stream()` call normally makes one model request: resolve deterministic request images, prefer Files ids, prepare any registered top-level request extensions, fetch from the resolved `baseURL`, accept extension transactions after HTTP 2xx, and translate the SSE stream into the harness protocol. File-resolution failure makes the first request inline; a provider stale-file response permits one replacement attempt, also inline if replacement resolution fails. Every model and Files call carries shared attribution. Model requests also carry the stable anonymous user id outside model input, plus a session id when present. Reasoning history is serialized back when required, and cache accounting maps DeepSeek's cache-hit metrics into harness usage.
 
+The upload index reuses one parsed document and a scope/variant lookup map per instance while the file identity, size, and nanosecond modification/change times match. Local writes invalidate the cached document before and after the atomic write. Expiry and refresh margins are checked on every lookup, and returned records are copies. Index files larger than 8 MiB are read without retaining a parsed document; this is a serialized-size ceiling, not a JavaScript heap limit. File locking, atomic writes, and the persisted format are unchanged. This local lookup cache does not change model input or provider token-cache accounting.
+
+Run the keyless [growing-index benchmark](benchmarks/upload-index.ts) from the repository root with `pnpm exec tsx --tsconfig tsconfig.base.json packages/llm/llm-deepseek/benchmarks/upload-index.ts`. It commits one new synthetic mapping before each lookup batch, verifies every returned id, and reports the lookup count, serialized index file bytes, and elapsed time for five measured batches after two warmups. It measures local index lookups, excludes commit time and file-size measurement, and makes no provider requests.
+
 </details>
 
 -----

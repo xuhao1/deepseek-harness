@@ -141,6 +141,10 @@ Files 模式通过 `maxRequestFilesBytes` 与 `maxImagesPerRequest` 限制保留
 
 一次 `stream()` 调用通常发一条模型请求：解析确定性请求图片、优先使用 Files id、准备所有已注册顶层请求扩展、向解析后的 `baseURL` 发起 fetch、在 HTTP 2xx 后接受扩展事务，并把 SSE 流翻译为 harness 协议。文件解析失败会让首条请求使用内联模式；提供方的陈旧文件响应允许一次替换尝试，且替换解析失败时也使用内联模式。每条模型与 Files 调用都携带共享归因。模型请求还在模型输入之外携带稳定匿名用户 id，并在存在 session id 时携带该值。推理历史会按需序列化回请求，缓存计量则把 DeepSeek 的缓存命中指标映射进 harness 用量桶。
 
+上传索引在文件身份、大小及纳秒级修改/变更时间一致时，为每个实例复用一份已解析文档和按 scope/variant 查询的映射。本地写入会在原子写入前后使缓存文档失效。每次查询仍检查过期时间与刷新余量，返回记录为副本。超过 8 MiB 的索引文件仍可读取，但不保留解析文档；该上限约束序列化大小，不是 JavaScript 堆内存上限。文件锁、原子写入与持久化格式保持不变。这项本地查询缓存不改变模型输入或提供方的 token 缓存计量。
+
+在仓库根目录运行 `pnpm exec tsx --tsconfig tsconfig.base.json packages/llm/llm-deepseek/benchmarks/upload-index.ts`，即可执行无需密钥的[递增索引基准](benchmarks/upload-index.ts)。每批查询前提交一条新的合成映射，校验所有返回 id，并在两次预热后报告五批测量的查询数、序列化索引文件字节数和耗时。它测量本地索引查询，不含提交与文件大小测量耗时，也不向提供方发请求。
+
 </details>
 
 -----

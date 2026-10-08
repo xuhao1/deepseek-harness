@@ -1,7 +1,7 @@
 /** Durable DeepSeek attachment-to-file-id index. @module dsh-llm-deepseek/upload-index */
 
 import { createHash } from 'node:crypto'
-import { readFile, mkdir } from 'node:fs/promises'
+import { readFile, mkdir, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -27,6 +27,20 @@ interface StoredIndex {
   formatVersion: 3
   records: DeepSeekUploadRecord[]
 }
+
+interface IndexSignature {
+  key: string
+  bytes: bigint
+}
+
+interface CachedIndex {
+  signature: string
+  document: StoredIndex
+  records: Map<string, DeepSeekUploadRecord>
+}
+
+// Bound retained index generations by their serialized size, not an estimated JavaScript heap size.
+const MAX_CACHED_INDEX_BYTES = 8n * 1024n * 1024n
 
 class InvalidUploadIndexError extends Error {}
 
@@ -108,10 +122,12 @@ function reusable(record: DeepSeekUploadRecord, now: number, refreshMarginMs: nu
   return record.expiresAt - now > refreshMarginMs
 }
 
-/** Atomic local index shared by every DeepSeek session in this DSH home. */
+/** Atomic local index shared by every DeepSeek session in this DSH home, with stat-validated parsed reuse. */
 export class DeepSeekUploadIndex {
   /** Absolute owner-private JSON index path. */
   readonly path: string
+  private snapshot: CachedIndex | undefined
+  private generation = 0
 
   /**
    * @param path - explicit test path; omission uses `DSH_HOME/llm-deepseek/files-v3.json`.
@@ -120,7 +136,20 @@ export class DeepSeekUploadIndex {
     this.path = path
   }
 
-  private async load(): Promise<StoredIndex> {
+  private async signature(): Promise<IndexSignature | undefined> {
+    try {
+      const value = await stat(this.path, { bigint: true })
+      return {
+        key: [value.dev, value.ino, value.size, value.mtimeNs, value.ctimeNs].join(':'),
+        bytes: value.size,
+      }
+    } catch (error: unknown) {
+      if (absent(error)) return undefined
+      throw error
+    }
+  }
+
+  private async read(): Promise<StoredIndex> {
     try {
       return parseIndex(await readFile(this.path, 'utf8'))
     } catch (error: unknown) {
@@ -131,11 +160,37 @@ export class DeepSeekUploadIndex {
     }
   }
 
+  private async load(): Promise<StoredIndex> {
+    const generation = this.generation
+    const before = await this.signature()
+    if (before !== undefined && this.snapshot?.signature === before.key) return this.snapshot.document
+    this.snapshot = undefined
+    const document = await this.read()
+    if (before !== undefined && before.bytes <= MAX_CACHED_INDEX_BYTES) {
+      const after = await this.signature()
+      if (generation === this.generation && before.key === after?.key) {
+        this.snapshot = {
+          signature: before.key,
+          document,
+          records: new Map(document.records.map(record => [`${record.scope}\0${record.variantId}`, record])),
+        }
+      }
+    }
+    return document
+  }
+
   private async save(index: StoredIndex): Promise<void> {
-    await writeFileAtomic(this.path, `${JSON.stringify(index, undefined, 2)}\n`, {
-      mode: 0o600,
-      dirMode: 0o700,
-    })
+    this.snapshot = undefined
+    this.generation += 1
+    try {
+      await writeFileAtomic(this.path, `${JSON.stringify(index, undefined, 2)}\n`, {
+        mode: 0o600,
+        dirMode: 0o700,
+      })
+    } finally {
+      this.snapshot = undefined
+      this.generation += 1
+    }
   }
 
   /**
@@ -144,7 +199,7 @@ export class DeepSeekUploadIndex {
    * @param variantId - complete request-image transformation identity.
    * @param now - current Unix time in milliseconds.
    * @param refreshMarginMs - remaining lifetime below which a mapping is not reused.
-   * @returns the mapping when it has enough lifetime remaining.
+   * @returns a detached mapping when it has enough lifetime remaining.
    */
   async get(
     scope: DeepSeekFileScopeType,
@@ -152,10 +207,11 @@ export class DeepSeekUploadIndex {
     now: number,
     refreshMarginMs: number,
   ): Promise<DeepSeekUploadRecord | undefined> {
-    const record = (await this.load()).records.find(candidate => (
-      candidate.scope === scope && candidate.variantId === variantId
-    ))
-    return record !== undefined && reusable(record, now, refreshMarginMs) ? record : undefined
+    const document = await this.load()
+    const record = this.snapshot?.document === document
+      ? this.snapshot.records.get(`${scope}\0${variantId}`)
+      : document.records.find(candidate => candidate.scope === scope && candidate.variantId === variantId)
+    return record !== undefined && reusable(record, now, refreshMarginMs) ? { ...record } : undefined
   }
 
   /**
@@ -178,7 +234,7 @@ export class DeepSeekUploadIndex {
         && record.variantId === candidate.variantId
         && reusable(record, now, refreshMarginMs)
       ))
-      if (existing !== undefined) return { record: existing, accepted: false }
+      if (existing !== undefined) return { record: { ...existing }, accepted: false }
       const records = index.records.filter(record => (
         reusable(record, now, refreshMarginMs)
         && !(record.scope === candidate.scope && record.variantId === candidate.variantId)
