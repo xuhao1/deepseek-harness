@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { cpus, platform, release, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -43,6 +43,7 @@ try {
     const index = new DeepSeekUploadIndex(path)
     const elapsedMs = []
     const lookupCounts = []
+    const indexFileBytes = []
     for (let batch = 0; batch < warmups + samples; batch++) {
       const next = record(records.length)
       await index.commit(next, now, 60_000)
@@ -55,10 +56,11 @@ try {
       if (batch >= warmups) {
         elapsedMs.push(elapsed)
         lookupCounts.push(records.length)
+        indexFileBytes.push((await stat(path)).size)
       }
     }
     const sorted = [...elapsedMs].sort((a, b) => a - b)
-    results.push({ initialRecords, lookupCounts, elapsedMs, medianMs: sorted[Math.floor(sorted.length / 2)] })
+    results.push({ initialRecords, lookupCounts, indexFileBytes, elapsedMs, medianMs: sorted[Math.floor(sorted.length / 2)] })
   }
   console.log(JSON.stringify({
     node: process.version,

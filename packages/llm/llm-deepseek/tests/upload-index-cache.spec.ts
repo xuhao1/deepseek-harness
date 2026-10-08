@@ -108,14 +108,20 @@ describe('DeepSeekUploadIndex parsed cache', () => {
   it('detects a same-size atomic replacement even when its modification time is restored', async () => {
     const path = await indexPath()
     const entry = record()
+    const timestamp = 1_700_000_000
     await seed(path, [entry])
-    const original = await stat(path)
+    await utimes(path, timestamp, timestamp)
+    const original = await stat(path, { bigint: true })
     const index = new DeepSeekUploadIndex(path)
     await index.get(scope, entry.variantId, 1, 1)
     const replacement = { ...entry, fileId: DeepSeekFileId('file-api-2') }
     await seed(`${path}.new`, [replacement])
-    await utimes(`${path}.new`, original.atime, original.mtime)
+    await utimes(`${path}.new`, timestamp, timestamp)
     await rename(`${path}.new`, path)
+    const replaced = await stat(path, { bigint: true })
+    expect(replaced.size).toBe(original.size)
+    expect(replaced.mtimeNs).toBe(original.mtimeNs)
+    expect(replaced.ino).not.toBe(original.ino)
     await expect(index.get(scope, entry.variantId, 1, 1)).resolves.toEqual(replacement)
   })
 

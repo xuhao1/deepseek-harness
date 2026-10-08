@@ -143,7 +143,7 @@ Files 模式通过 `maxRequestFilesBytes` 与 `maxImagesPerRequest` 限制保留
 
 上传索引在文件身份、大小及纳秒级修改/变更时间一致时，为每个实例复用一份已解析文档和按 scope/variant 查询的映射。本地写入会在原子写入前后使缓存文档失效。每次查询仍检查过期时间与刷新余量，返回记录为副本。超过 8 MiB 的索引文件仍可读取，但不保留解析文档；该上限约束序列化大小，不是 JavaScript 堆内存上限。文件锁、原子写入与持久化格式保持不变。这项本地查询缓存不改变模型输入或提供方的 token 缓存计量。
 
-在仓库根目录运行 `pnpm exec tsx --tsconfig tsconfig.base.json packages/llm/llm-deepseek/benchmarks/upload-index.ts`，即可执行无需密钥的[递增索引基准](benchmarks/upload-index.ts)。每批查询前提交一条新的合成映射，校验所有返回 id，并在两次预热后报告五批测量。它测量本地索引查询，不含提交耗时，也不向提供方发请求。
+在仓库根目录运行 `pnpm exec tsx --tsconfig tsconfig.base.json packages/llm/llm-deepseek/benchmarks/upload-index.ts`，即可执行无需密钥的[递增索引基准](benchmarks/upload-index.ts)。每批查询前提交一条新的合成映射，校验所有返回 id，并在两次预热后报告五批测量的查询数、序列化索引文件字节数和耗时。它测量本地索引查询，不含提交与文件大小测量耗时，也不向提供方发请求。
 
 </details>
 

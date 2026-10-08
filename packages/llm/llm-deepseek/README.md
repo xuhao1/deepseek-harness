@@ -143,7 +143,7 @@ One `stream()` call normally makes one model request: resolve deterministic requ
 
 The upload index reuses one parsed document and a scope/variant lookup map per instance while the file identity, size, and nanosecond modification/change times match. Local writes invalidate the cached document before and after the atomic write. Expiry and refresh margins are checked on every lookup, and returned records are copies. Index files larger than 8 MiB are read without retaining a parsed document; this is a serialized-size ceiling, not a JavaScript heap limit. File locking, atomic writes, and the persisted format are unchanged. This local lookup cache does not change model input or provider token-cache accounting.
 
-Run the keyless [growing-index benchmark](benchmarks/upload-index.ts) from the repository root with `pnpm exec tsx --tsconfig tsconfig.base.json packages/llm/llm-deepseek/benchmarks/upload-index.ts`. It commits one new synthetic mapping before each lookup batch, verifies every returned id, and reports five measured batches after two warmups. It measures local index lookups, excludes commit time, and makes no provider requests.
+Run the keyless [growing-index benchmark](benchmarks/upload-index.ts) from the repository root with `pnpm exec tsx --tsconfig tsconfig.base.json packages/llm/llm-deepseek/benchmarks/upload-index.ts`. It commits one new synthetic mapping before each lookup batch, verifies every returned id, and reports the lookup count, serialized index file bytes, and elapsed time for five measured batches after two warmups. It measures local index lookups, excludes commit time and file-size measurement, and makes no provider requests.
 
 </details>
 
